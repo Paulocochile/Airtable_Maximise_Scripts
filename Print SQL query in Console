@@ -1,0 +1,40 @@
+let sqlQuery = "SELECT PART_CODE, SERIAL_CODE, Isnull(WARE_CODE, 'Ninguna') AS WARE_CODE, Isnull(PURCH_NUM, 0) AS PURCH_NUM, UNIT_COST_AMT, Isnull(ONHAND_QTY, 0) AS ONHAND_QTY, Isnull(TRAN_DATE, '') AS TRAN_DATE FROM SERIALINFO WITH (NOLOCK) WHERE cmpy_code=1 AND ONHAND_QTY>0";
+
+// Prepare the XML body data
+let xmlBody = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetQueryAsDataSet xmlns="http://asp.maximise.cl">
+      <AliasName>X</AliasName>
+      <UserName>Y</UserName>
+      <Password>Z</Password>
+      <Sql>${sqlQuery}</Sql>
+    </GetQueryAsDataSet>
+  </soap:Body>
+</soap:Envelope>`;
+
+// Log the entire XML body for review
+console.log("XML Body:", xmlBody);
+
+// Make the API request with enhanced error handling
+try {
+  console.log('Sending request to the server...');
+  let response = await fetch('https://asp2.maximise.cl/wsv/query.asmx?op=GetQueryAsDataSet', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://asp.maximise.cl/GetQueryAsDataSet'
+    },
+    body: xmlBody
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  let textResponse = await response.text();
+  console.log('Response received:', textResponse);
+} catch (error) {
+  console.error('Error making request:', error);
+  console.error('Error details:', error.name, error.message);
+}
