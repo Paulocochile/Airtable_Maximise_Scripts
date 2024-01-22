@@ -1,0 +1,114 @@
+let sqlQuery = "select A.entry_date, A.order_num, A.idproyecto, A.vend_code, A.status_ind, A.enter_code, A.approval_status, B.line_num, B.part_code, B.uom_QTY, B.unit_cost_amt, B.ext_cost_amt from PURCHHEAD A with (nolock) left join PURCHDETL B with (nolock) on B.cmpy_code=A.cmpy_code and B.order_num=A.order_num Where A.cmpy_code=1";
+
+// Prepare the XML body data
+let xmlBody = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetQueryAsDataSet xmlns="http://asp.maximise.cl">
+      <AliasName>seco</AliasName>
+      <UserName>webservice</UserName>
+      <Password>prueba1</Password>
+      <Sql>${sqlQuery}</Sql>
+    </GetQueryAsDataSet>
+  </soap:Body>
+</soap:Envelope>`;
+
+// Log the entire XML body for review
+console.log("XML Body:", xmlBody);
+
+// Make the API request with enhanced error handling
+try {
+  console.log('Sending request to the server...');
+  let response = await fetch('https://asp2.maximise.cl/wsv/query.asmx?op=GetQueryAsDataSet', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://asp.maximise.cl/GetQueryAsDataSet'
+    },
+    body: xmlBody
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  let textResponse = await response.text();
+  console.log('Response received:', textResponse);
+   let tables = textResponse.match(/<Table[^>]*>(.*?)<\/Table>/g);
+
+  // Pre-fetch all existing records to minimize queries
+  let existingRecords = await base.getTable('OCs').selectRecordsAsync({
+    fields: ["Numero", "Linea"]
+  });
+
+  let updates = [];
+  let creates = [];
+
+  for (let tableXml of tables) {
+    let entryDate = tableXml.match(/<entry_date>(.*?)<\/entry_date>/)?.[1];
+    let orderNum = tableXml.match(/<order_num>(.*?)<\/order_num>/)?.[1];
+    let idProyecto = tableXml.match(/<idproyecto>(.*?)<\/idproyecto>/)?.[1];
+    let vendCode = tableXml.match(/<vend_code>(.*?)<\/vend_code>/)?.[1];
+    let statusInd = tableXml.match(/<status_ind>(.*?)<\/status_ind>/)?.[1];
+    let enterCode = tableXml.match(/<enter_code>(.*?)<\/enter_code>/)?.[1];
+    let approvalStatus = tableXml.match(/<approval_status>(.*?)<\/approval_status>/)?.[1];
+    let lineNum = tableXml.match(/<line_num>(.*?)<\/line_num>/)?.[1];
+    let partCode = tableXml.match(/<part_code>(.*?)<\/part_code>/)?.[1];
+    let uomQty = tableXml.match(/<uom_QTY>(.*?)<\/uom_QTY>/)?.[1];
+    let unitCostamt = tableXml.match(/<unit_cost_amt>(.*?)<\/unit_cost_amt>/)?.[1];
+    let extCostamt = tableXml.match(/<ext_cost_amt>(.*?)<\/ext_cost_amt>/)?.[1];
+
+    let foundRecord = existingRecords.records.find(record =>
+      record.getCellValue("Numero") === parseInt(orderNum, 10) &&
+      record.getCellValue("Linea") === parseInt(lineNum, 10)
+    );
+
+    if (foundRecord) {
+      // Prepare update data
+      updates.push({
+        id: foundRecord.id,
+        fields: {
+          "Fecha": entryDate,
+          "Tipo": idProyecto,
+          "Rut": vendCode,
+          "Estado": statusInd,
+          "Comprador": enterCode,
+          "Aprobacion": approvalStatus,
+          "Producto": partCode,
+          "Cantidad": parseFloat(uomQty),
+          "Costo": parseFloat(unitCostamt),
+          "Total": parseFloat(extCostamt),
+        }
+      });
+    } else {
+      // Prepare create data
+      creates.push({
+        fields: {
+          "Numero": parseInt(orderNum, 10),
+          "Fecha": entryDate,
+          "Tipo": idProyecto,
+          "Rut": vendCode,
+          "Estado": statusInd,
+          "Comprador": enterCode,
+          "Aprobacion": approvalStatus,
+          "Linea": parseInt(lineNum, 10),
+          "Producto": partCode,
+          "Cantidad": parseFloat(uomQty),
+          "Costo": parseFloat(unitCostamt),
+          "Total": parseFloat(extCostamt),
+        }
+      });
+    }
+  }
+
+  // Perform batch updates and creates
+  while (updates.length) {
+    await base.getTable('OCs').updateRecordsAsync(updates.splice(0, 50));
+  }
+  while (creates.length) {
+    await base.getTable('OCs').createRecordsAsync(creates.splice(0, 50));
+  }
+
+} catch (error) {
+  console.error('Error details:', error.message || error.toString());
+}
